@@ -28,7 +28,6 @@ client.onmessage = async function(e) {
 
 
         if(request === "send"){
-            console.log(message);
             let chat = await readFile(path.join(__dirname, "chat.txt"), "utf-8")
             await writeFile(path.join(__dirname, "chat.txt"), chat + "\n" + message + "<br />", "utf-8")
             client.send(JSON.stringify(
@@ -36,7 +35,6 @@ client.onmessage = async function(e) {
             ))
         }
         if(request === "get"){
-            console.log("get")
             let chat = await readFile(path.join(__dirname, "chat.txt"), "utf-8")
             client.send(JSON.stringify(
                 {message:chat, request: "sendchat", clientID:id}

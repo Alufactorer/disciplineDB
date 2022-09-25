@@ -58,14 +58,14 @@ app.ws("/echo", (ws, req) => {
         }
 
         if(request === "sendtoclient"){
-            clients.filter(val => val.id === clientID)[0].ws.send(JSON.stringify({
-                message
-            }))
+            clients.forEach(conn => conn.ws.send(JSON.stringify({
+                message, request
+            })))
         }
 
         if(request === "sendchat"){
             clients.filter(val => val.id === clientID)[0].ws.send(JSON.stringify({
-                message
+                message, request
             }))
         }
         
