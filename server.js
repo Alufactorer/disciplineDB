@@ -22,7 +22,9 @@ app.get("/", (req, res) => {
 
 app.ws("/echo", (ws, req) => {
 
-    clients.push({ws, id:""})
+    let internalid = uuidv4()
+
+    clients.push({ws, id:internalid})
 
     console.log(clients.length)
 
@@ -33,13 +35,11 @@ app.ws("/echo", (ws, req) => {
     ws.on("message", msg => {
         const {request, id, message, clientID} = (JSON.parse(msg))
 
-        let internalid;
 
         if(id){
             (clients.filter(val => val.ws === ws))[0].id = id
             internalid = id
         } if(!id && !clientID) {
-            internalid = uuidv4()
             (clients.filter(val => val.ws === ws))[0].id = internalid;
         }
 
@@ -53,7 +53,7 @@ app.ws("/echo", (ws, req) => {
 
         if(request === "get"){
             clients.filter(val => val.id === "3fbc3c92-b6af-468e-b9b6-5659bcc9795e")[0].ws.send(JSON.stringify(
-                {request, id:internalid}
+                {request, id:internalid, message}
             ))
         }
 

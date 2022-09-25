@@ -29,7 +29,8 @@ client.onmessage = async function(e) {
 
         if(request === "send"){
             console.log(message);
-            await writeFile(path.join(__dirname, "chat.txt"), message, "utf-8")
+            let chat = await readFile(path.join(__dirname, "chat.txt"), "utf-8")
+            await writeFile(path.join(__dirname, "chat.txt"), chat + "\n" + message + "<br />", "utf-8")
             client.send(JSON.stringify(
                 {message:message, request: "sendtoclient", clientID:id}
             ))
