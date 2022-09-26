@@ -12,6 +12,11 @@ const PORT = 5000
 
 let clients = [];
 
+const dbkey = process.env.DBKEY;
+
+
+let dbclient = null;
+
 enablews(app)
 
 
@@ -24,51 +29,53 @@ app.ws("/echo", (ws, req) => {
 
     let internalid = uuidv4()
 
-    clients.push({ws, id:internalid})
 
-    console.log(clients.length)
+
 
     ws.on("close", () => {
-        clients.splice(clients.indexOf(clients.filter(val => val.ws === ws)), 1)
+
+        if(ws === dbclient){
+            ws = null;
+        } else {
+            clients.splice(clients.indexOf(clients.filter(val => val.ws === ws)), 1)
+        }
+
+        
+        console.log("connection severed", clients.length)
     })
 
     ws.on("message", msg => {
         const {request, id, message, clientID} = (JSON.parse(msg))
 
 
-        if(id){
-            (clients.filter(val => val.ws === ws))[0].id = id
-            internalid = id
-        } if(!id && !clientID) {
-            (clients.filter(val => val.ws === ws))[0].id = internalid;
+
+        if(id === dbkey && request === "auth"){
+            console.log("db client")
+            dbclient = ws
+
+        } if(request === "auth" && id !== dbkey ) {
+            
+            clients.push({ws, id:internalid})
+            console.log("new connection", clients.length)
         }
 
+        
+        
+        if(request === "query"){
 
 
-        if(request === "send"){
-            clients.filter(val => val.id === "3fbc3c92-b6af-468e-b9b6-5659bcc9795e")[0].ws.send(JSON.stringify(
-                {request, message, id:internalid}
-            ))
-        }
-
-        if(request === "get"){
-            clients.filter(val => val.id === "3fbc3c92-b6af-468e-b9b6-5659bcc9795e")[0].ws.send(JSON.stringify(
+            dbclient.send(JSON.stringify(
                 {request, id:internalid, message}
             ))
         }
 
-        if(request === "sendtoclient"){
-            clients.forEach(conn => conn.ws.send(JSON.stringify({
-                message, request
-            })))
-        }
+        if(request === "queryresult"){
+            console.log(message, clientID)
 
-        if(request === "sendchat"){
             clients.filter(val => val.id === clientID)[0].ws.send(JSON.stringify({
                 message, request
             }))
         }
-        
     })
 })
 
