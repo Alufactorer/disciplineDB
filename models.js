@@ -55,6 +55,22 @@ class disciplinedServer{
                         content
                     }))
                 }
+
+                if(request === "registerroomid"){
+                    this.clients[(this.clients.map(client => client.id).indexOf(content.clientid))].roomid = content.roomid
+                }
+
+
+                if(request === "roommessagetoserver"){
+                    this.dbclient.send(JSON.stringify(request, content))
+                }
+                if(request === "roommessagetoclient"){
+                    //content of list form containing all clients in given room, ["id", "id", "id"]
+
+                    content.roomclients.forEach(client => {
+                        this.clients[this.clients.map(c => c.id).indexOf(client)].ws.send(request, content)
+                    })
+                }
             })
 
             ws.on("close", l => {
@@ -62,6 +78,7 @@ class disciplinedServer{
                 if(this.dbclient === ws){
                     this.dbclient = false
                 } else {
+                    this.dbclient.send(JSON.stringify({request:"disconnectfromroom", content:{clientId:this.clients[this.clients.map(client => client.ws).indexOf(ws)].id, roomid:this.clients[this.clients.map(client => client.ws).indexOf(ws)].roomid}}))
                     this.clients.splice(this.clients.map(client => client.ws).indexOf(ws), 1)
                 }
 
@@ -122,6 +139,7 @@ class disciplinedSocket{
     constructor(url, id){
         this.id = `${id || uuidv4()}.rooms.json`
         this.connection = new client(url, "echo-protocol")
+        this.roommessagefunction = false;
 
 
         this.roomconnectfunctions = [];
@@ -144,12 +162,10 @@ class disciplinedSocket{
         this.connection.onmessage = async msg => {
             const {request, content} = JSON.parse(msg.data);
 
-            console.log("hello")
 
             if(request === "connecttoroom"){
-                const allrooms = JSON.parse(await readFile(join(__dirname, "rooms", this.id), "utf-8"))
+                let allrooms = JSON.parse(await readFile(join(__dirname, "rooms", this.id), "utf-8"))
 
-                console.log(allrooms)
 
 
                 if(allrooms[content.roomid]){
@@ -163,11 +179,33 @@ class disciplinedSocket{
 
                 await writeFile(join(__dirname, "rooms", this.id), JSON.stringify(allrooms, " "), "utf-8")
                 
+                this.connection.send(JSON.stringify({request:"registerroomid", content:{clientid:content.id, roomid:content.roomid}}))
 
                 this.roomconnectfunctions.forEach(f => f(content, this))
             }
 
+            if(request === "disconnectfromroom"){
+                let allrooms = JSON.parse(await readFile(join(__dirname, "rooms", this.id), "utf-8"))
 
+
+                allrooms[content.roomid].splice(allrooms[content.roomid].indexOf(content.clientid), 1)
+
+                await writeFile(join(__dirname, "rooms", this.id), JSON.stringify(allrooms, " "), "utf-8")
+
+            }
+
+            if(request === "roommessagetoserver"){
+                if(!this.roommessagefunction){
+                    throw "no function provided to process incoming roommessages"
+                }
+                let roombroadcastresult = this.roommessagefunction(content)
+
+                //roombroadcast has to work
+
+                this.connection.send(JSON.stringify({request:"roommessagetoclient", content:{
+                    
+                }}))
+            }
             
         }
 
@@ -177,6 +215,8 @@ class disciplinedSocket{
 
     onroomconnect(listener){
         this.roomconnectfunctions.push(listener)
+
+        return this
     }
 
     onconnect(connectionfunction){
@@ -202,8 +242,13 @@ class disciplinedSocket{
 
 class disciplinedClient{
     constructor(url, id){
+        this.currentconnectedroom = false;
         this.connection = new client(url, "echo-protocol");
         this.id = `${id || uuidv4()}`
+
+        this.roomlisteners = [];
+        this.connectionlisteners = [];
+
         this.connection.onopen = async () => {
 
             const content = {
@@ -211,13 +256,21 @@ class disciplinedClient{
             }
 
             this.connection.send(JSON.stringify({request:"clientauth", content}))
+
+            this.connectionlisteners.forEach(l => l(this))
         };
+
+        this.connection.onmessage = async msg => {
+            const {request, content} = JSON.parse(msg.data)
+
+            if(request === "roommessage"){
+                this.roomlisteners.forEach(l => l(msg))
+            }
+        }
     }
 
     onconnect(connectionfunction){
-        this.connection.onopen = async () => {
-            connectionfunction(this);
-        };
+        this.connectionlisteners.push(connectionfunction)
 
         return this
     }
@@ -237,13 +290,15 @@ class disciplinedClient{
     }
 
     addroomlistener(roomlistener){
-        this.connection.onmessage = (msg => {
-            roomlistener(JSON.parse(msg))
-        })
+        this.roomlisteners.push(roomlistener)
 
         return this
     }
 
+
+    roommessage(message){
+        this.connection.send(JSON.stringify({request:"roommessagetoserver", content:message}))
+    }
 
     broadcast(content){
         this.connection.send(JSON.stringify({content, request:"broadcast"}))
