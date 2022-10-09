@@ -4,17 +4,14 @@ const client = (require("websocket").w3cwebsocket)
 
 
 //rooms in memory
-const {writeFile, readFile, mkdir, readdir} = require("fs/promises");
+const {writeFile, readFile, mkdir} = require("fs/promises");
 
 const {join} = require("path")
 
 
 //ids
 const {v4:uuidv4} = require("uuid");
-const { write } = require("fs");
-const { urlToHttpOptions } = require("url");
-const { request } = require("express");
-require("dotenv").config();
+const { threadId } = require("worker_threads");
 
 
 
@@ -62,23 +59,31 @@ class disciplinedServer{
 
 
                 if(request === "roommessagetoserver"){
-                    this.dbclient.send(JSON.stringify(request, content))
+                    const roomid = content.roomid
+                    const senderid = content.senderid;
+                    this.dbclient.send(JSON.stringify({request, content:{message:content.message, roomid, senderid}}))
                 }
                 if(request === "roommessagetoclient"){
                     //content of list form containing all clients in given room, ["id", "id", "id"]
 
-                    content.roomclients.forEach(client => {
-                        this.clients[this.clients.map(c => c.id).indexOf(client)].ws.send(request, content)
-                    })
+                    console.log(content)
+
+                    try{content.roomclients.forEach(client => {
+                        this.clients[this.clients.map(c => c.id).indexOf(client)].ws.send(JSON.stringify({
+                            request, content:content.message
+                        }))
+                    })}catch(e){console.log("the database seems to not be able to respond quicly enough")}
                 }
             })
 
             ws.on("close", l => {
-
                 if(this.dbclient === ws){
                     this.dbclient = false
                 } else {
+                    
+                    if(this.clients[this.clients.map(client => client.ws).indexOf(ws)].roomid){
                     this.dbclient.send(JSON.stringify({request:"disconnectfromroom", content:{clientId:this.clients[this.clients.map(client => client.ws).indexOf(ws)].id, roomid:this.clients[this.clients.map(client => client.ws).indexOf(ws)].roomid}}))
+                }
                     this.clients.splice(this.clients.map(client => client.ws).indexOf(ws), 1)
                 }
 
@@ -162,10 +167,8 @@ class disciplinedSocket{
         this.connection.onmessage = async msg => {
             const {request, content} = JSON.parse(msg.data);
 
-
             if(request === "connecttoroom"){
                 let allrooms = JSON.parse(await readFile(join(__dirname, "rooms", this.id), "utf-8"))
-
 
 
                 if(allrooms[content.roomid]){
@@ -178,6 +181,8 @@ class disciplinedSocket{
                 }
 
                 await writeFile(join(__dirname, "rooms", this.id), JSON.stringify(allrooms, " "), "utf-8")
+
+                
                 
                 this.connection.send(JSON.stringify({request:"registerroomid", content:{clientid:content.id, roomid:content.roomid}}))
 
@@ -198,13 +203,14 @@ class disciplinedSocket{
                 if(!this.roommessagefunction){
                     throw "no function provided to process incoming roommessages"
                 }
-                let roombroadcastresult = this.roommessagefunction(content)
+                let roomclients = JSON.parse(await readFile(join(__dirname, "rooms", this.id)))[content.roomid];
 
-                //roombroadcast has to work
+                roomclients.splice(content.senderid, 1)
 
-                this.connection.send(JSON.stringify({request:"roommessagetoclient", content:{
-                    
-                }}))
+
+                let broadcastfunctionresult = this.roommessagefunction(content.message)
+
+                this.connection.send(JSON.stringify({request:"roommessagetoclient", content:{roomclients, message:broadcastfunctionresult}}))
             }
             
         }
@@ -236,6 +242,9 @@ class disciplinedSocket{
         return this
     }
     
+    onroommessage(roombroadcastmutation){
+        this.roommessagefunction = roombroadcastmutation
+    }
     
 }
 
@@ -246,6 +255,8 @@ class disciplinedClient{
         this.connection = new client(url, "echo-protocol");
         this.id = `${id || uuidv4()}`
 
+        this.room = false;
+
         this.roomlisteners = [];
         this.connectionlisteners = [];
 
@@ -255,16 +266,22 @@ class disciplinedClient{
                 clientid:this.id
             }
 
+            if(this.room){
+                this.connection.send(JSON.stringify(
+                    {request:"connecttoroom", content:{id: this.id, roomid:this.room}}
+                ))
+            }
+
             this.connection.send(JSON.stringify({request:"clientauth", content}))
 
-            this.connectionlisteners.forEach(l => l(this))
+            this.connectionlisteners.forEach(async l => await l(this))
         };
 
         this.connection.onmessage = async msg => {
             const {request, content} = JSON.parse(msg.data)
 
-            if(request === "roommessage"){
-                this.roomlisteners.forEach(l => l(msg))
+            if(request === "roommessagetoclient"){
+                this.roomlisteners.forEach(l => l(content))
             }
         }
     }
@@ -282,9 +299,7 @@ class disciplinedClient{
 
 
     connecttoroom(roomid){
-        this.connection.send(JSON.stringify(
-            {request:"connecttoroom", content:{id: this.id, roomid}}
-        ))
+        this.room = roomid
 
         return this
     }
@@ -297,7 +312,7 @@ class disciplinedClient{
 
 
     roommessage(message){
-        this.connection.send(JSON.stringify({request:"roommessagetoserver", content:message}))
+        this.connection.send(JSON.stringify({request:"roommessagetoserver", content:{message, roomid:this.room, senderid:this.id}}))
     }
 
     broadcast(content){
