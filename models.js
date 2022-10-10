@@ -4,7 +4,7 @@ const client = (require("websocket").w3cwebsocket)
 
 
 //rooms in memory
-const {writeFile, readFile, mkdir} = require("fs/promises");
+const {writeFile, readFile, mkdir, readdir} = require("fs/promises");
 
 const {join} = require("path")
 
@@ -66,13 +66,14 @@ class disciplinedServer{
                 if(request === "roommessagetoclient"){
                     //content of list form containing all clients in given room, ["id", "id", "id"]
 
-                    console.log(content)
 
-                    try{content.roomclients.forEach(client => {
+                    
+                        content.roomclients.forEach(client => {
+                        console.log("hello")
                         this.clients[this.clients.map(c => c.id).indexOf(client)].ws.send(JSON.stringify({
                             request, content:content.message
                         }))
-                    })}catch(e){console.log("the database seems to not be able to respond quicly enough")}
+                    })
                 }
             })
 
@@ -149,11 +150,14 @@ class disciplinedSocket{
 
         this.roomconnectfunctions = [];
 
-        mkdir(join(__dirname, "rooms")).then(
-            res => writeFile(__dirname + "/rooms/" + this.id, JSON.stringify({}, " "), "utf-8"))
-        .catch(
-            res => writeFile(__dirname + "/rooms/" + this.id, JSON.stringify({}, " "), "utf-8")
-        )
+        readdir(join(__dirname, "rooms")).then(res => {
+            if(!res.includes(join(this.id))){
+                writeFile(join(__dirname, "rooms", this.id), JSON.stringify({}), "utf-8")
+            }
+        }).catch(e => {
+            mkdir(join(__dirname, "rooms"));
+            writeFile(join(__dirname, "rooms", this.id), JSON.stringify({}), "utf-8")
+        })
 
         this.connection.onopen = async () => {
 
@@ -180,7 +184,7 @@ class disciplinedSocket{
                     allrooms[content.roomid].push(content.id)
                 }
 
-                await writeFile(join(__dirname, "rooms", this.id), JSON.stringify(allrooms, " "), "utf-8")
+                await writeFile(join(__dirname, "rooms", this.id), JSON.stringify(allrooms, null, " "), "utf-8")
 
                 
                 
@@ -195,7 +199,7 @@ class disciplinedSocket{
 
                 allrooms[content.roomid].splice(allrooms[content.roomid].indexOf(content.clientid), 1)
 
-                await writeFile(join(__dirname, "rooms", this.id), JSON.stringify(allrooms, " "), "utf-8")
+                await writeFile(join(__dirname, "rooms", this.id), JSON.stringify(allrooms, null,  " "), "utf-8")
 
             }
 
@@ -203,9 +207,12 @@ class disciplinedSocket{
                 if(!this.roommessagefunction){
                     throw "no function provided to process incoming roommessages"
                 }
+
+                
                 let roomclients = JSON.parse(await readFile(join(__dirname, "rooms", this.id)))[content.roomid];
 
-                roomclients.splice(content.senderid, 1)
+
+                roomclients.splice(roomclients.indexOf(content.senderid), 1)
 
 
                 let broadcastfunctionresult = this.roommessagefunction(content.message)
@@ -215,6 +222,9 @@ class disciplinedSocket{
             
         }
 
+        this.connection.onclose = async () => {
+            await writeFile(join(__dirname, "rooms", this.id), JSON.stringify({}), "utf-8")
+        }
 
         
     }
