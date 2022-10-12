@@ -17,7 +17,8 @@ const { threadId } = require("worker_threads");
 
 
 class disciplinedServer{
-    constructor(path, port, alloweddbclients){
+    constructor(path, port, alloweddbclients, dbkey){
+        this.dbkey = dbkey;
         this.socket = new WebSocket.Server({path, port})
 
         this.alloweddbclients = alloweddbclients ||  [];
@@ -43,7 +44,10 @@ class disciplinedServer{
                     }
                 }
                 if(request === "clientauth"){
-                    this.clients.push({ws, id:content.clientid})
+                    if(this.dbkey === content.dbkey){
+                        
+                        this.clients.push({ws, id:content.clientid})
+                    }
                 }
 
                 if(request === "connecttoroom"){
@@ -260,7 +264,8 @@ class disciplinedSocket{
 
 
 class disciplinedClient{
-    constructor(url, id){
+    constructor(url, id, dbkey){
+        this.dbkey = dbkey;
         this.currentconnectedroom = false;
         this.connection = new client(url, "echo-protocol");
         this.id = `${id || uuidv4()}`
@@ -278,7 +283,7 @@ class disciplinedClient{
 
             if(this.room){
                 this.connection.send(JSON.stringify(
-                    {request:"connecttoroom", content:{id: this.id, roomid:this.room}}
+                    {request:"connecttoroom", content:{id: this.id, roomid:this.room, dbkey:this.dbkey}}
                 ))
             }
 
