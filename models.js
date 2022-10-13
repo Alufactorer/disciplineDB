@@ -73,11 +73,20 @@ class disciplinedServer{
 
                     
                         content.roomclients.forEach(client => {
-                        console.log("hello")
                         this.clients[this.clients.map(c => c.id).indexOf(client)].ws.send(JSON.stringify({
                             request, content:content.message
                         }))
                     })
+                }
+
+
+                if(request === "query"){
+                    console.log("hello")
+                    this.dbclient.send(JSON.stringify({request:"query", content}))
+                }
+
+                if(request === "queryresult"){
+                    this.clients[this.clients.map(client => client.id).indexOf(content.clientid)].ws.send(JSON.stringify({request, content}))
                 }
             })
 
@@ -151,6 +160,7 @@ class disciplinedSocket{
         this.connection = new client(url, "echo-protocol")
         this.roommessagefunction = false;
 
+        this.queryfunction = false;
 
         this.roomconnectfunctions = [];
 
@@ -223,6 +233,16 @@ class disciplinedSocket{
 
                 this.connection.send(JSON.stringify({request:"roommessagetoclient", content:{roomclients, message:broadcastfunctionresult}}))
             }
+
+
+            if(request === "query"){
+                console.log(content)
+
+                const qf = this.queryfunction ? this.queryfunction : v => v;
+
+                    this.connection.send(JSON.stringify({request:"queryresult", content:{result:qf(content.query), clientid:content.id} }))
+                
+            }
             
         }
 
@@ -258,6 +278,15 @@ class disciplinedSocket{
     
     onroommessage(roombroadcastmutation){
         this.roommessagefunction = roombroadcastmutation
+
+        return this
+    }
+
+
+    setqueryfunction(f){
+        this.queryfunction = f
+
+        return this
     }
     
 }
