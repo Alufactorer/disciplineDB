@@ -17,8 +17,7 @@ const { threadId } = require("worker_threads");
 
 
 class disciplinedServer{
-    constructor(path, port, alloweddbclients, dbkey){
-        this.dbkey = dbkey;
+    constructor(path, port, alloweddbclients){
         this.socket = new WebSocket.Server({path, port})
 
         this.alloweddbclients = alloweddbclients ||  [];
@@ -29,7 +28,7 @@ class disciplinedServer{
         this.socket.on("connection", ws => {
 
 
-            ws.on("message", msg => {
+            ws.on("message", async msg => {
                 const {request, content} = JSON.parse(msg.toString());
 
                 if(request === "broadcast"){
@@ -44,11 +43,21 @@ class disciplinedServer{
                     }
                 }
                 if(request === "clientauth"){
-                    if(this.dbkey === content.dbkey){
+                    if(JSON.parse(await readFile(join(__dirname, "allowedclients.json"), "utf-8"))["allowedclients"].includes(content.clientid)){
                         
                         this.clients.push({ws, id:content.clientid})
                     }
                 }
+
+                if(request === "newuser"){
+                    console.log("new user!")
+                    let users = JSON.parse(await readFile(join(__dirname, "allowedclients.json"), "utf-8"))["allowedclients"]
+
+                    users.push(content.UID)
+
+                    await writeFile(join(__dirname, "allowedclients.json"), JSON.stringify(users), "utf-8")
+                }
+
 
                 if(request === "connecttoroom"){
                     this.dbclient.send(JSON.stringify({
@@ -58,7 +67,7 @@ class disciplinedServer{
                 }
 
                 if(request === "registerroomid"){
-                    this.clients[(this.clients.map(client => client.id).indexOf(content.clientid))].roomid = content.roomid
+                    this.clients[(this.clients.map(client => client.id).indexOf(content.clientid))]["roomid"] = content.roomid
                 }
 
 
@@ -81,7 +90,6 @@ class disciplinedServer{
 
 
                 if(request === "query"){
-                    console.log("hello")
                     this.dbclient.send(JSON.stringify({request:"query", content}))
                 }
 
@@ -93,11 +101,10 @@ class disciplinedServer{
             ws.on("close", l => {
                 if(this.dbclient === ws){
                     this.dbclient = false
-                } else {
-                    
-                    if(this.clients[this.clients.map(client => client.ws).indexOf(ws)].roomid){
-                    this.dbclient.send(JSON.stringify({request:"disconnectfromroom", content:{clientId:this.clients[this.clients.map(client => client.ws).indexOf(ws)].id, roomid:this.clients[this.clients.map(client => client.ws).indexOf(ws)].roomid}}))
-                }
+                } else {    
+                    if(this.clients[this.clients.map(client => client.ws).indexOf(ws)] && this.clients[this.clients.map(client => client.ws).indexOf(ws)]["roomid"]){
+                        this.dbclient.send(JSON.stringify({request:"disconnectfromroom", content:{clientId:this.clients[this.clients.map(client => client.ws).indexOf(ws)].id, roomid:this.clients[this.clients.map(client => client.ws).indexOf(ws)].roomid}}))
+                    }
                     this.clients.splice(this.clients.map(client => client.ws).indexOf(ws), 1)
                 }
 
@@ -236,11 +243,10 @@ class disciplinedSocket{
 
 
             if(request === "query"){
-                console.log(content)
 
                 const qf = this.queryfunction ? this.queryfunction : v => v;
 
-                    this.connection.send(JSON.stringify({request:"queryresult", content:{result:qf(content.query), clientid:content.id} }))
+                this.connection.send(JSON.stringify({request:"queryresult", content:{result:await  qf(content.userid, content.query), clientid:content.id} }))
                 
             }
             
